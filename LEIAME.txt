@@ -1,0 +1,44 @@
+APP DE CAMPO - REGISTRO DE CTO (funciona sem internet)
+
+O QUE É
+Uma página que o técnico instala no celular como app. Ele digita o nome completo da CTO,
+o GPS é coletado sozinho e o registro é salvo NO CELULAR. Quando houver internet, o app
+envia para a planilha. Sem sinal, os registros ficam guardados e saem depois.
+
+ARQUIVOS (hospedar todos juntos, na mesma pasta)
+  index.html, sw.js, manifest.webmanifest, icon-192.png, icon-512.png
+
+1) CONFIGURAR (uma vez)
+   Abra index.html em um editor de texto e troque, no começo do <script>:
+     CONFIG.URL   -> link do app da web do Apps Script (termina em /exec)
+     CONFIG.TOKEN -> a mesma senha que está no TOKEN do Code.gs
+
+2) HOSPEDAR em endereço HTTPS (é obrigatório para instalar o app e usar GPS e modo offline)
+   Opção grátis, GitHub Pages:
+     - crie um repositório no GitHub (pode ser privado em plano pago; público é grátis)
+     - envie os 5 arquivos para a raiz do repositório
+     - Settings > Pages > Branch: main / (root) > Save
+     - o endereço sai como https://SEU-USUARIO.github.io/NOME-DO-REPOSITORIO/
+   Outras opções: Netlify, Cloudflare Pages, Firebase Hosting ou qualquer hospedagem com HTTPS.
+   (Se já tem um lugar onde hospeda outros apps seus, pode usar o mesmo.)
+   Atenção: a senha (TOKEN) fica visível no código da página. Ela só impede envios de quem
+   não tem o link; não use a mesma senha de nada importante.
+
+3) INSTALAR NO CELULAR DO TÉCNICO (com internet, só na primeira vez)
+   Android (Chrome): abrir o endereço > menu (3 pontinhos) > "Instalar app" ou "Adicionar à tela inicial".
+   iPhone (Safari): abrir o endereço > Compartilhar > "Adicionar à Tela de Início".
+   Abrir o app uma vez com internet e permitir a localização. Depois disso ele abre sem sinal.
+
+COMO FUNCIONA NO DIA A DIA
+ - Sem internet: o registro fica em "Aguardando envio". O GPS funciona sem internet.
+ - Quando a internet voltar, o envio é automático, desde que o app esteja aberto.
+   Se o técnico fechar o app sem sinal, é só abrir de novo com internet.
+ - Se o nome da CTO estiver errado ou a OLT não for reconhecida, o app avisa e o registro
+   vai para a aba REGISTROS COM ERRO da planilha (nada se perde).
+ - Cada registro tem um código: se o envio repetir por falha de conexão, não grava duas vezes.
+
+CUIDADOS
+ - Não limpar os dados do navegador/app enquanto houver registros aguardando envio.
+ - Para atualizar o app depois de mudar algum arquivo, aumente o número em CACHE = 'cto-app-v1'
+   no sw.js (v2, v3...) e hospede de novo.
+ - Se criar um POP novo (nova aba), acrescente o nome em POPS no index.html.

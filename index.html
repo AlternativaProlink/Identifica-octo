@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#4B5320">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>Registrar CTO</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #EEF2E3; margin: 0; padding: 12px; color: #262626; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; max-width: 480px; margin: 0 auto 14px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    h1 { color: #4B5320; font-size: 20px; margin: 0 0 4px; }
+    h2 { color: #4B5320; font-size: 15px; margin: 0 0 8px; }
+    label { display: block; font-size: 13px; font-weight: bold; margin: 12px 0 4px; color: #4B5320; }
+    input, select, textarea { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #b9c2a0; border-radius: 8px; background: #fff; }
+    textarea { height: 64px; }
+    .linha { display: flex; gap: 8px; } .linha > div { flex: 1; }
+    button { width: 100%; background: #4B5320; color: #fff; border: 0; border-radius: 8px; padding: 14px; font-size: 17px; margin-top: 16px; }
+    button.sec { background: #8A9A5B; font-size: 14px; padding: 10px; margin-top: 8px; }
+    button.mini { width: auto; padding: 6px 10px; font-size: 12px; margin: 0 0 0 8px; background: #b71c1c; }
+    .status { border-radius: 8px; padding: 8px 12px; font-size: 14px; margin: 8px 0 0; }
+    .status.on { background: #e3f1e0; color: #1b5e20; } .status.off { background: #fff3d6; color: #8a5a00; }
+    .gps { font-size: 13px; margin-top: 6px; } .gps.ok { color: #2e7d32; } .gps.aviso { color: #b26a00; } .gps.erro { color: #b71c1c; }
+    .destino { background: #EEF2E3; border-radius: 8px; padding: 10px; font-size: 14px; margin-top: 10px; word-break: break-word; }
+    .destino.ruim { background: #fff3d6; color: #8a5a00; }
+    .msg { margin-top: 12px; padding: 12px; border-radius: 8px; font-size: 15px; display: none; }
+    .msg.ok { background: #e3f1e0; color: #1b5e20; display: block; } .msg.aviso { background: #fff3d6; color: #8a5a00; display: block; }
+    ul { list-style: none; padding: 0; margin: 0; } li { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #eef0e6; word-break: break-word; }
+    small { color: #595959; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📍 Registrar CTO</h1>
+    <div class="status on" id="status">Online</div>
+
+    <label>Nome completo da CTO</label>
+    <input id="nome" type="text" placeholder="P0/1/10/C10 OLT PARIS" autocapitalize="characters" autocomplete="off">
+    <small>Se não for de 8 portas: P1/1/14/C12 4 PORTAS OLT PV 2</small>
+    <div class="destino" id="destino">Aba de destino: —</div>
+
+    <label>Localização (GPS)</label>
+    <input id="loc" type="text" inputmode="decimal" placeholder="coletando…">
+    <div class="gps" id="gps">Buscando sua localização…</div>
+    <button class="sec" type="button" onclick="coletar()">Atualizar localização</button>
+
+    <div class="linha">
+      <div><label>Sinal (dBm)</label><input id="sinal" type="text" inputmode="decimal" placeholder="-17.5"></div>
+      <div><label>Nº de clientes</label><input id="clientes" type="number" inputmode="numeric" min="0"></div>
+    </div>
+    <div class="linha">
+      <div><label>Fibra</label><select id="fibra1"></select></div>
+      <div><label>2ª fibra <small>(16P)</small></label><select id="fibra2"></select></div>
+    </div>
+    <div class="linha">
+      <div><label>Data</label><input id="data" type="date"></div>
+      <div><label>Equipe</label><input id="equipe" type="text" placeholder="Equipe 07"></div>
+    </div>
+    <label>Observações</label>
+    <textarea id="obs"></textarea>
+
+    <button id="salvar" type="button" onclick="salvar()">Salvar registro</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card" id="cardFila" style="display:none">
+    <h2>📤 Aguardando envio (<span id="qtd">0</span>)</h2>
+    <small>Ficam guardados neste celular e são enviados sozinhos quando houver internet, com o app aberto.</small>
+    <ul id="fila"></ul>
+    <button class="sec" type="button" onclick="sincronizar(true)">Enviar agora</button>
+  </div>
+
+  <div class="card" id="cardHist" style="display:none">
+    <h2>Últimos envios</h2>
+    <ul id="hist"></ul>
+  </div>
+
+  <script>
+    // ===== CONFIGURAÇÃO (preencher uma vez, antes de hospedar) =====
+    var CONFIG = {
+      URL: 'COLE_AQUI_O_LINK_DO_APP_DA_WEB_QUE_TERMINA_EM_/exec',
+      TOKEN: 'troque-esta-senha'      // igual ao TOKEN do Code.gs
+    };
+    // ================================================================
+    var POPS = ['ADS', 'BF', 'CANSANÇÃO', 'FAT', 'PARIS', 'PV', 'RN', 'SITIO', 'TC'];
+    var ALIAS = { ST: 'SITIO', SITO: 'SITIO', CAN: 'CANSANCAO', HUAWEI: 'PARIS' };
+    var FIBRAS = ['01 - Verde', '02 - Amarela', '03 - Branca', '04 - Azul', '05 - Vermelha', '06 - Violeta (lilás)',
+      '07 - Marrom', '08 - Rosa', '09 - Preta', '10 - Cinza', '11 - Laranja', '12 - Aqua'];
+    var RE_NOME = /^(P\d+\/\d+\/\d+\/C\d+)(?: \d+ PORTAS)? OLT (.+)$/;
+
+    var $ = function (i) { return document.getElementById(i); };
+    var mem = {};
+    function ler(k, padrao) { try { var v = localStorage.getItem('cto_' + k); return v === null ? padrao : v; } catch (e) { return mem[k] !== undefined ? mem[k] : padrao; } }
+    function gravar(k, v) { try { localStorage.setItem('cto_' + k, v); } catch (e) { mem[k] = v; } }
+    function lerJson(k) { try { return JSON.parse(ler(k, '[]')); } catch (e) { return []; } }
+    function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+    function opcoes(sel, lista) {
+      sel.innerHTML = '<option value="">—</option>';
+      lista.forEach(function (t) { var o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o); });
+    }
+    function semAcento(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase(); }
+    function hoje() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+    function novoId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10); }
+
+    /* ----- destino / validação do nome ----- */
+    function analisaNome() {
+      var t = $('nome').value.trim().toUpperCase().replace(/\s+/g, ' ');
+      var m = t.match(RE_NOME);
+      if (!t) return { vazio: true };
+      if (!m) return { ok: false, texto: '⚠ Nome fora do padrão: vai para a aba REGISTROS COM ERRO' };
+      var p = semAcento(m[2].split(' ')[0]); p = ALIAS[p] || p;
+      var aba = POPS.filter(function (x) { return semAcento(x) === p; })[0];
+      if (!aba) return { ok: false, texto: '⚠ OLT não reconhecida: vai para a aba REGISTROS COM ERRO' };
+      return { ok: true, aba: aba, texto: 'Aba de destino: ' + aba };
+    }
+    function atualizaDestino() {
+      var a = analisaNome(), d = $('destino');
+      d.className = 'destino' + (a.vazio || a.ok ? '' : ' ruim');
+      d.textContent = a.vazio ? 'Aba de destino: —' : a.texto;
+    }
+
+    /* ----- GPS (funciona sem internet) ----- */
+    function coletar() {
+      var g = $('gps'); g.className = 'gps'; g.textContent = 'Buscando sua localização… (se perguntar, toque em Permitir)';
+      if (!navigator.geolocation) { g.className = 'gps erro'; g.textContent = 'Este navegador não consegue obter o GPS. Digite a coordenada.'; return; }
+      navigator.geolocation.getCurrentPosition(function (p) {
+        $('loc').value = p.coords.latitude.toFixed(6) + ', ' + p.coords.longitude.toFixed(6);
+        var prec = Math.round(p.coords.accuracy);
+        g.className = 'gps ' + (prec > 30 ? 'aviso' : 'ok');
+        g.textContent = '✔ Localização coletada (precisão ~' + prec + ' m)' + (prec > 30 ? '. Precisão baixa: se puder, vá para um local aberto e atualize.' : '.');
+      }, function (err) {
+        g.className = 'gps erro';
+        g.textContent = err.code === 1 ? 'Permissão de localização negada. Libere o acesso à localização para este app ou digite a coordenada.'
+          : err.code === 3 ? 'Demorou demais para achar o GPS. Toque em "Atualizar localização" ou digite a coordenada.'
+          : 'Não foi possível obter a localização. Digite a coordenada.';
+      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    }
+
+    /* ----- fila offline e envio ----- */
+    var enviando = false;
+    function mostra(tipo, texto) { var m = $('msg'); m.className = 'msg ' + tipo; m.textContent = texto; }
+
+    function salvar() {
+      var a = analisaNome();
+      if (a.vazio) { mostra('aviso', 'Digite o nome da CTO.'); return; }
+      if (!a.ok && !confirm(a.texto + '. Salvar mesmo assim?')) return;
+      if (!$('loc').value.trim() && !confirm('A localização está vazia. Salvar mesmo assim?')) return;
+      var reg = { id: novoId(), criadoEm: new Date().toISOString(), nome: $('nome').value, loc: $('loc').value.trim(),
+        sinal: $('sinal').value, clientes: $('clientes').value, fibra1: $('fibra1').value, fibra2: $('fibra2').value,
+        data: $('data').value, equipe: $('equipe').value, obs: $('obs').value };
+      var f = lerJson('fila'); f.push(reg); gravar('fila', JSON.stringify(f));
+      gravar('equipe', reg.equipe);
+      mostra('ok', navigator.onLine ? '✔ Registro guardado. Enviando…' : '✔ Registro guardado no celular. Será enviado quando houver internet.');
+      $('nome').value = ''; $('sinal').value = ''; $('clientes').value = ''; $('obs').value = '';
+      $('fibra1').value = ''; $('fibra2').value = '';
+      atualizaDestino(); render(); coletar(); sincronizar();
+    }
+
+    function addHist(item) { var h = lerJson('hist'); h.unshift(item); gravar('hist', JSON.stringify(h.slice(0, 15))); }
+
+    async function sincronizar(manual) {
+      if (enviando) return;
+      var f = lerJson('fila'); if (!f.length) { render(); return; }
+      if (CONFIG.URL.indexOf('COLE_AQUI') >= 0) { mostra('aviso', 'App sem o link do servidor configurado (CONFIG.URL).'); return; }
+      enviando = true; render();
+      try {
+        for (var i = 0; i < f.length; i++) {
+          var rec = f[i], resp;
+          try {
+            var r = await fetch(CONFIG.URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ token: CONFIG.TOKEN, registro: rec }), redirect: 'follow' });
+            resp = await r.json();
+          } catch (e) { break; }                      // sem internet ou resposta ilegível: tenta depois
+          if (resp && resp.ok) {
+            var atual = lerJson('fila').filter(function (x) { return x.id !== rec.id; }); gravar('fila', JSON.stringify(atual));
+            addHist({ quando: new Date().toISOString(), nome: resp.nome || rec.nome, resultado: resp.resultado,
+              aba: resp.aba, linha: resp.linha, motivo: resp.motivo });
+            if (resp.resultado === 'erro') mostra('aviso', '⚠ Recebido, mas foi para REGISTROS COM ERRO: ' + resp.motivo);
+            else mostra('ok', '✔ Enviado: aba ' + resp.aba + ', linha ' + resp.linha);
+          } else {
+            if (manual) mostra('aviso', 'Servidor recusou o envio' + (resp && resp.erro ? ' (' + resp.erro + ')' : '') + '. Verifique TOKEN e link.');
+            break;
+          }
+        }
+      } finally { enviando = false; render(); }
+    }
+
+    function excluir(id) {
+      if (!confirm('Excluir este registro pendente do celular?')) return;
+      gravar('fila', JSON.stringify(lerJson('fila').filter(function (x) { return x.id !== id; }))); render();
+    }
+
+    function render() {
+      var on = navigator.onLine, f = lerJson('fila'), h = lerJson('hist');
+      var st = $('status'); st.className = 'status ' + (on ? 'on' : 'off');
+      st.textContent = on ? 'Online' + (f.length ? ' · enviando pendentes…' : '') : 'Sem internet · os registros ficam guardados no celular';
+      $('cardFila').style.display = f.length ? 'block' : 'none'; $('qtd').textContent = f.length;
+      $('fila').innerHTML = f.map(function (x) {
+        return '<li>⏳ ' + esc(String(x.nome).toUpperCase()) + ' <button class="mini" onclick="excluir(\'' + x.id + '\')">excluir</button></li>';
+      }).join('');
+      $('cardHist').style.display = h.length ? 'block' : 'none';
+      $('hist').innerHTML = h.map(function (x) {
+        var hora = new Date(x.quando).toLocaleString('pt-BR');
+        return '<li>' + (x.resultado === 'erro' ? '⚠' : '✔') + ' ' + esc(x.nome) + '<br><small>' + hora + ' · ' +
+          (x.resultado === 'erro' ? 'REGISTROS COM ERRO: ' + esc(x.motivo || '') : 'aba ' + esc(x.aba) + ', linha ' + x.linha) + '</small></li>';
+      }).join('');
+    }
+
+    opcoes($('fibra1'), FIBRAS); opcoes($('fibra2'), FIBRAS);
+    $('equipe').value = ler('equipe', ''); $('data').value = hoje();
+    $('nome').oninput = atualizaDestino;
+    window.addEventListener('online', function () { render(); sincronizar(); });
+    window.addEventListener('offline', render);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { $('data').value = $('data').value || hoje(); sincronizar(); } });
+    setInterval(function () { if (navigator.onLine) sincronizar(); }, 30000);
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
+    render(); coletar(); sincronizar();
+  </script>
+</body>
+</html>

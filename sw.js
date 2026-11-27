@@ -1,5 +1,5 @@
 // Guarda o app no celular para abrir sem internet (cache + atualização em segundo plano).
-var CACHE = 'cto-app-v1';
+var CACHE = 'cto-app-v2';
 var ARQUIVOS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {

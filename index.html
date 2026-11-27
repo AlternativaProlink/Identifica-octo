@@ -30,9 +30,22 @@
     .msg.ok { background: #e3f1e0; color: #1b5e20; display: block; } .msg.aviso { background: #fff3d6; color: #8a5a00; display: block; }
     ul { list-style: none; padding: 0; margin: 0; } li { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #eef0e6; word-break: break-word; }
     small { color: #595959; }
+    .abas { display: flex; gap: 6px; max-width: 480px; margin: 0 auto 10px; }
+    .abas button { margin: 0; padding: 12px; font-size: 15px; background: #b9c2a0; color: #262626; }
+    .abas button.ativa { background: #4B5320; color: #fff; }
+    .lista li { font-size: 15px; padding: 8px 0; }
+    .lista li small { display: block; font-size: 12px; color: #6b6b6b; margin: 2px 0 0 20px; }
+    .lista li.pend { color: #8a5a00; }
+    .vazio { font-size: 14px; color: #595959; padding: 10px 0; }
   </style>
 </head>
 <body>
+  <div class="abas">
+    <button type="button" id="abaReg" class="ativa" onclick="mostrarTela('reg')">📍 Registrar</button>
+    <button type="button" id="abaCon" onclick="mostrarTela('con')">🔎 Consultar</button>
+  </div>
+
+  <div id="telaReg">
   <div class="card">
     <h1>📍 Registrar CTO</h1>
     <div class="status on" id="status">Online</div>
@@ -53,7 +66,7 @@
     </div>
     <div class="linha">
       <div><label>Fibra</label><select id="fibra1"></select></div>
-      <div><label>2ª fibra <small>(16P)</small></label><select id="fibra2"></select></div>
+      <div><label>2ª fibra <small>(12P ou 16P)</small></label><select id="fibra2"></select></div>
     </div>
     <div class="linha">
       <div><label>Data</label><input id="data" type="date"></div>
@@ -76,6 +89,27 @@
   <div class="card" id="cardHist" style="display:none">
     <h2>Últimos envios</h2>
     <ul id="hist"></ul>
+  </div>
+  </div>
+
+  <div id="telaCon" style="display:none">
+  <div class="card">
+    <h1>🔎 CTOs já identificadas</h1>
+    <div class="status on" id="statusCon">—</div>
+
+    <label>OLT</label>
+    <select id="conOlt"></select>
+
+    <label>Porta</label>
+    <input id="conPorta" type="text" inputmode="decimal" placeholder="1/1/1 ou 0/3/4" autocomplete="off">
+    <small>Datacom: 1/1/1 · Huawei: 0/3/4 (pode digitar com ou sem o P)</small>
+
+    <h2 style="margin-top:16px">Identificadas nesta porta (<span id="conQtd">0</span>)</h2>
+    <ul class="lista" id="conLista"></ul>
+    <div class="vazio" id="conVazio">Escolha a OLT e digite a porta.</div>
+
+    <button class="sec" type="button" onclick="baixarCtos(true)">Atualizar lista</button>
+  </div>
   </div>
 
   <script>
@@ -166,7 +200,7 @@
       if (enviando) return;
       var f = lerJson('fila'); if (!f.length) { render(); return; }
       if (CONFIG.URL.indexOf('COLE_AQUI') >= 0) { mostra('aviso', 'App sem o link do servidor configurado (CONFIG.URL).'); return; }
-      enviando = true; render();
+      enviando = true; render(); var enviados = 0;
       try {
         for (var i = 0; i < f.length; i++) {
           var rec = f[i], resp;
@@ -176,9 +210,9 @@
             resp = await r.json();
           } catch (e) { break; }                      // sem internet ou resposta ilegível: tenta depois
           if (resp && resp.ok) {
-            var atual = lerJson('fila').filter(function (x) { return x.id !== rec.id; }); gravar('fila', JSON.stringify(atual));
+            var atual = lerJson('fila').filter(function (x) { return x.id !== rec.id; }); gravar('fila', JSON.stringify(atual)); enviados++;
             addHist({ quando: new Date().toISOString(), nome: resp.nome || rec.nome, resultado: resp.resultado,
-              aba: resp.aba, linha: resp.linha, motivo: resp.motivo });
+              aba: resp.aba, linha: resp.linha, motivo: resp.motivo, data: rec.data, equipe: rec.equipe });
             if (resp.resultado === 'erro') mostra('aviso', '⚠ Recebido, mas foi para REGISTROS COM ERRO: ' + resp.motivo);
             else mostra('ok', '✔ Enviado: aba ' + resp.aba + ', linha ' + resp.linha);
           } else {
@@ -186,7 +220,7 @@
             break;
           }
         }
-      } finally { enviando = false; render(); }
+      } finally { enviando = false; render(); renderCon(); if (enviados) baixarCtos(false); }
     }
 
     function excluir(id) {
@@ -210,15 +244,103 @@
       }).join('');
     }
 
+    /* ----- consulta das CTOs já identificadas (funciona sem internet com a última lista baixada) ----- */
+    var baixando = false;
+    function mostrarTela(t) {
+      $('telaReg').style.display = t === 'reg' ? 'block' : 'none';
+      $('telaCon').style.display = t === 'con' ? 'block' : 'none';
+      $('abaReg').className = t === 'reg' ? 'ativa' : ''; $('abaCon').className = t === 'con' ? 'ativa' : '';
+      if (t === 'con') { renderCon(); if (navigator.onLine) baixarCtos(false); }
+    }
+    // mesma regra do servidor: "FAT" = "FAT 1" = "FAT1"; "RN 1" ≠ "RN 2"; ST/SITO = SITIO; CAN = CANSANÇÃO
+    function oltDe(nome) {
+      var s = semAcento(String(nome || '')).replace(/0LT/g, 'OLT').replace(/\s+/g, ' ').trim();
+      var o = s.match(/OLT\s*(.*)$/); if (!o) return null;
+      var t = o[1].replace(/\d+\s*PORTAS/g, ' ').trim().split(/\s+/).filter(String);
+      if (t.length > 1) t = t.filter(function (x) { return x !== 'HUAWEI'; });
+      if (!t.length) return null;
+      var m = t.join('').match(/^([A-Z]+?)(\d*)$/); if (!m || !m[1]) return null;
+      return (ALIAS[m[1]] || m[1]) + '|' + (m[2] ? Number(m[2]) : 1);
+    }
+    function portaDe(nome) {
+      var m = semAcento(String(nome || '')).trim().match(/^P(\d+)\/(\d+)\/(\d+)\/C(\d+)/);
+      return m ? { porta: Number(m[1]) + '/' + Number(m[2]) + '/' + Number(m[3]), c: Number(m[4]) } : null;
+    }
+    function portaDigitada() {
+      var t = $('conPorta').value.toUpperCase().replace(/\s+/g, '').replace(/^P/, '').replace(/[.\-\\]/g, '/');
+      var p = t.split('/').filter(String);
+      if (p.length !== 3 || p.some(function (x) { return !/^\d+$/.test(x); })) return '';
+      return p.map(Number).join('/');
+    }
+    function dataCurta(iso) { var p = String(iso || '').split('-'); return p.length === 3 ? p[2] + '/' + p[1] + '/' + p[0].slice(2) : ''; }
+    function detalhe(partes) { return partes.filter(function (x) { return x !== '' && x != null; }).map(esc).join(' · '); }
+    function dadosCtos() { try { return JSON.parse(ler('ctos', 'null')); } catch (e) { return null; } }
+    async function baixarCtos(manual) {
+      if (baixando) return;
+      if (!navigator.onLine) { if (manual) mostraCon('Sem internet: mostrando a última lista baixada.'); return; }
+      baixando = true; mostraCon('Atualizando lista…');
+      try {
+        var r = await fetch(CONFIG.URL + '?acao=ctos&token=' + encodeURIComponent(CONFIG.TOKEN), { redirect: 'follow' });
+        var j = await r.json();
+        if (j && j.ok) { gravar('ctos', JSON.stringify(j)); }
+        else if (manual) { mostraCon('Servidor recusou a consulta' + (j && j.erro ? ' (' + j.erro + ')' : '') + '.'); baixando = false; return; }
+      } catch (e) { if (manual) mostraCon('Não foi possível atualizar agora. Mostrando a última lista baixada.'); }
+      baixando = false; renderCon();
+    }
+    function mostraCon(texto) { var st = $('statusCon'); st.className = 'status ' + (navigator.onLine ? 'on' : 'off'); st.textContent = texto; }
+    function renderCon() {
+      var d = dadosCtos(), sel = $('conOlt'), atual = sel.value || ler('conOlt', '');
+      if (d && d.olts) {
+        sel.innerHTML = '<option value="">Escolha a OLT</option>' + d.olts.map(function (o) {
+          return '<option value="' + esc(o.id) + '">' + esc(o.nome) + '</option>'; }).join('');
+        sel.value = atual;
+        var quando = new Date(d.atualizado).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        mostraCon((navigator.onLine ? '' : 'Sem internet · ') + 'Lista atualizada em ' + quando);
+      } else {
+        sel.innerHTML = '<option value="">—</option>';
+        mostraCon(navigator.onLine ? 'Baixando a lista…' : 'Sem internet e sem lista baixada. Abra o app com internet uma vez.');
+      }
+      var olt = sel.value, porta = portaDigitada(), itens = [], vistos = {};
+      if (olt && porta && d && d.ctos) {
+        d.ctos.forEach(function (c) {
+          if (c[0] === olt && c[1] === porta) { var k = semAcento(c[2]).replace(/\s+/g, ' '); if (!vistos[k]) { vistos[k] = 1;
+            itens.push({ nome: c[2], pend: false, info: detalhe([c[3], c[4], c[6] ? 'linha ' + c[6] : '']) }); } }
+        });
+        var baixadaEm = new Date(d.atualizado).getTime();
+        lerJson('hist').forEach(function (x) {   // enviados por este celular depois da última lista baixada
+          if (x.resultado !== 'ok' || new Date(x.quando).getTime() < baixadaEm) return;
+          var n = String(x.nome || '').toUpperCase().replace(/\s+/g, ' ').trim(), p = portaDe(n);
+          if (oltDe(n) === olt && p && p.porta === porta) { var k = semAcento(n); if (!vistos[k]) { vistos[k] = 1;
+            itens.push({ nome: n, pend: false, info: detalhe([dataCurta(x.data), x.equipe, x.linha ? 'linha ' + x.linha : '']) }); } }
+        });
+        lerJson('fila').forEach(function (x) {   // registrados neste celular e ainda não enviados
+          var n = String(x.nome || '').toUpperCase().replace(/\s+/g, ' ').trim(), p = portaDe(n);
+          if (oltDe(n) === olt && p && p.porta === porta) { var k = semAcento(n); if (!vistos[k]) { vistos[k] = 1;
+            itens.push({ nome: n, pend: true, info: detalhe(['aguardando envio', dataCurta(x.data), x.equipe]) }); } }
+        });
+        itens.sort(function (a, b) { return portaDe(a.nome).c - portaDe(b.nome).c; });
+      }
+      $('conQtd').textContent = itens.length;
+      $('conLista').innerHTML = itens.map(function (i) {
+        return '<li' + (i.pend ? ' class="pend"' : '') + '>' + (i.pend ? '⏳ ' : '✔ ') + esc(i.nome) + (i.info ? '<small>' + i.info + '</small>' : '') + '</li>';
+      }).join('');
+      var v = $('conVazio');
+      v.style.display = itens.length ? 'none' : 'block';
+      v.textContent = !olt || !$('conPorta').value.trim() ? 'Escolha a OLT e digite a porta.'
+        : !porta ? 'Porta incompleta. Exemplo: 1/1/1 ou 0/3/4.' : 'Nenhuma CTO identificada nesta porta ainda.';
+    }
+
     opcoes($('fibra1'), FIBRAS); opcoes($('fibra2'), FIBRAS);
+    $('conOlt').onchange = function () { gravar('conOlt', $('conOlt').value); renderCon(); };
+    $('conPorta').oninput = renderCon;
     $('equipe').value = ler('equipe', ''); $('data').value = hoje();
     $('nome').oninput = atualizaDestino;
-    window.addEventListener('online', function () { render(); sincronizar(); });
+    window.addEventListener('online', function () { render(); sincronizar(); baixarCtos(false); });
     window.addEventListener('offline', render);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { $('data').value = $('data').value || hoje(); sincronizar(); } });
     setInterval(function () { if (navigator.onLine) sincronizar(); }, 30000);
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function () {});
-    render(); coletar(); sincronizar();
+    render(); renderCon(); coletar(); sincronizar(); baixarCtos(false);
   </script>
 </body>
 </html>
